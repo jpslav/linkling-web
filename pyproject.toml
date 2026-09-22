@@ -1,0 +1,18 @@
+[project]
+name = "linkling-web"
+version = "0.0.0"
+description = "The Linkling public site: landing page and privacy page (hand-written HTML/CSS, no build step)."
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

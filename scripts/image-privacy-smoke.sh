@@ -41,13 +41,22 @@ http_status() {
     printf '%s' "$out"
 }
 
+generated_image=1
+[ -z "${LINKLING_WEB_SMOKE_IMAGE:-}" ] || generated_image=0
 image="${LINKLING_WEB_SMOKE_IMAGE:-linkling-web-smoke:$(rand 4)}"
 container="linkling-web-smoke-$(rand 6)"
 port="${LINKLING_WEB_SMOKE_PORT:-18080}"
 base="http://127.0.0.1:$port"
 missing="/no-such-page-$(rand 8)"
 
-cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+# Only remove the image if this run built its own randomly-tagged one -- an explicitly
+# named LINKLING_WEB_SMOKE_IMAGE is the caller's to keep (e.g. reusing a cached tag).
+cleanup() {
+    docker rm -f "$container" >/dev/null 2>&1 || true
+    if [ "$generated_image" = 1 ]; then
+        docker rmi "$image" >/dev/null 2>&1 || true
+    fi
+}
 trap cleanup EXIT
 
 echo "image $image, container $container, on $base"

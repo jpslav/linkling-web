@@ -23,6 +23,24 @@ docker info >/dev/null 2>&1 || blind "the docker daemon is not reachable"
 
 rand() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 
+CURL_MAX_TIME=10
+
+# Read straight from the client, before anything below ever looks at the container's own
+# logs -- this is what proves a request actually arrived. Uses curl's own %{http_code},
+# which is already "000" on a true no-response (verified: connection-refused prints 000
+# and exits nonzero); `set +e`/`set -e` around the call exists only to stop that nonzero
+# exit from killing the whole script early under `set -e`, without touching what curl
+# printed. A bare `x="$(curl ...)" || x=000` looks like it does the same thing but does
+# not: verified that it clobbers a real status too, whenever curl exits nonzero for ANY
+# reason after already receiving one (e.g. a body-read timeout following a real 200).
+http_status() {
+    local out
+    set +e
+    out="$(curl -s --max-time "$CURL_MAX_TIME" -o /dev/null -w '%{http_code}' "$1")"
+    set -e
+    printf '%s' "$out"
+}
+
 image="${LINKLING_WEB_SMOKE_IMAGE:-linkling-web-smoke:$(rand 4)}"
 container="linkling-web-smoke-$(rand 6)"
 port="${LINKLING_WEB_SMOKE_PORT:-18080}"
@@ -51,14 +69,8 @@ for _ in $(seq 1 30); do
 done
 [ -n "$up" ] || blind "the container never answered on $base"
 
-# The proof that each request arrived: the status code the client itself received, read
-# before any log is inspected. A "000" from curl means no HTTP response at all -- blind,
-# not a request the server ever saw or could have logged. `|| ok_status=000` (rather than
-# a bare assignment) matters under `set -e`: without it, a curl connection failure here
-# would kill the whole script with curl's own exit code instead of reaching the blind()
-# below that this line exists to reach.
-ok_status="$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$base/")" || ok_status=000
-missing_status="$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$base$missing")" || missing_status=000
+ok_status="$(http_status "$base/")"
+missing_status="$(http_status "$base$missing")"
 echo "GET / -> $ok_status; GET $missing -> $missing_status"
 [ "$ok_status" != "000" ] || blind "GET / got no HTTP response -- no request can be proven to have arrived"
 [ "$missing_status" != "000" ] || blind "GET $missing got no HTTP response -- no request can be proven to have arrived"
@@ -67,13 +79,20 @@ echo "GET / -> $ok_status; GET $missing -> $missing_status"
 
 logs="$(docker logs "$container" 2>&1)" || blind "could not read the container's logs"
 # access_log/error_log are off by design, so an empty-of-requests log is the goal -- but an
-# empty-of-EVERYTHING log is not evidence of that, it's evidence nothing was captured. nginx's
-# own startup notices are not suppressed by these directives (they predate parsing conf.d), so
-# requiring one here is what makes an absence of leaks below mean something.
-grep -qF "ready for start up" <<<"$logs" \
+# empty-of-EVERYTHING log is not evidence of that, it's evidence nothing was captured. Grep for
+# nginx's OWN startup notice ("nginx/<version>", from the master process, at the main context's
+# error log), not docker-entrypoint.sh's wrapper text: the wrapper's lines are suppressed
+# whenever NGINX_ENTRYPOINT_QUIET_LOGS is set, which would silently defeat a check keyed to them.
+grep -qE '\[notice\].*nginx/[0-9]' <<<"$logs" \
     || blind "no nginx startup line in the container logs, so their silence proves nothing"
 if grep -qF "$missing" <<<"$logs"; then
     fail "the container logs name the requested path: $(grep -F "$missing" <<<"$logs" | head -1)"
+fi
+# nginx writes "client: <address>" verbatim on every request-level error regardless of IP
+# version, so this catches an IPv6 leak too, not just IPv4. The IPv4 shape check stays as a
+# second, independent net in case an address ever appears somewhere not labelled "client: ".
+if grep -qF "client: " <<<"$logs"; then
+    fail "the container logs hold a client address: $(grep -F "client: " <<<"$logs" | head -1)"
 fi
 addrs="$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' <<<"$logs" | grep -vx '0\.0\.0\.0' || true)"
 [ -z "$addrs" ] || fail "the container logs hold an IPv4 address: $(head -1 <<<"$addrs")"

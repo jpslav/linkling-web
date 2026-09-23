@@ -34,7 +34,7 @@ trap cleanup EXIT
 
 echo "image $image, container $container, on $base"
 
-docker build -t "$image" . >/dev/null || fail "docker build failed"
+docker build -t "$image" . >/dev/null || blind "docker build failed"
 
 if ! docker run -d --name "$container" -p "$port:80" "$image" >/dev/null; then
     blind "docker run never started a container"
@@ -44,7 +44,7 @@ fi
 # because the server is not up yet is not evidence of anything this script checks.
 up=""
 for _ in $(seq 1 30); do
-    if curl -s -o /dev/null "$base/"; then up=1; break; fi
+    if curl -s --max-time 5 -o /dev/null "$base/"; then up=1; break; fi
     state="$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)"
     case "$state" in exited|dead) blind "the container is $state before it ever answered" ;; esac
     sleep 0.5
@@ -53,16 +53,25 @@ done
 
 # The proof that each request arrived: the status code the client itself received, read
 # before any log is inspected. A "000" from curl means no HTTP response at all -- blind,
-# not a request the server ever saw or could have logged.
-ok_status="$(curl -s -o /dev/null -w '%{http_code}' "$base/")"
-missing_status="$(curl -s -o /dev/null -w '%{http_code}' "$base$missing")"
+# not a request the server ever saw or could have logged. `|| ok_status=000` (rather than
+# a bare assignment) matters under `set -e`: without it, a curl connection failure here
+# would kill the whole script with curl's own exit code instead of reaching the blind()
+# below that this line exists to reach.
+ok_status="$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$base/")" || ok_status=000
+missing_status="$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$base$missing")" || missing_status=000
 echo "GET / -> $ok_status; GET $missing -> $missing_status"
 [ "$ok_status" != "000" ] || blind "GET / got no HTTP response -- no request can be proven to have arrived"
 [ "$missing_status" != "000" ] || blind "GET $missing got no HTTP response -- no request can be proven to have arrived"
 [ "$ok_status" = 200 ] || fail "GET / answered $ok_status, not 200"
 [ "$missing_status" = 404 ] || fail "GET $missing answered $missing_status, not 404"
 
-logs="$(docker logs "$container" 2>&1)"
+logs="$(docker logs "$container" 2>&1)" || blind "could not read the container's logs"
+# access_log/error_log are off by design, so an empty-of-requests log is the goal -- but an
+# empty-of-EVERYTHING log is not evidence of that, it's evidence nothing was captured. nginx's
+# own startup notices are not suppressed by these directives (they predate parsing conf.d), so
+# requiring one here is what makes an absence of leaks below mean something.
+grep -qF "ready for start up" <<<"$logs" \
+    || blind "no nginx startup line in the container logs, so their silence proves nothing"
 if grep -qF "$missing" <<<"$logs"; then
     fail "the container logs name the requested path: $(grep -F "$missing" <<<"$logs" | head -1)"
 fi

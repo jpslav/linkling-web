@@ -29,16 +29,21 @@ including `crit`.
 image at build time** at the exact path `linkling-api`'s compose mount already uses,
 `/etc/nginx/conf.d/00-privacy.conf` (Dockerfile, this PR).
 
-Same path, on purpose: nginx's `conf.d/*.conf` files are read in filename order and a later
-file of the same name replaces an earlier one on disk rather than appending to it, so
-`linkling-api`'s bind mount (`ro`) simply overlays this image's own copy with an identical
-file at container start. Nothing about the two conflicts, and nothing in `linkling-api`
-needs to change for that to keep being true. The mount becomes redundant the moment this
-image ships, but removing it is `linkling-api`'s call, not this repo's (LL-020's scope
-excludes it) -- until it is removed, `linkling-web` still works if `linkling-api` is rolled
-back to an image predating this change, which the mount alone could not guarantee for the
-reverse case (an old `linkling-api` compose file against a new, mount-free `linkling-web`
-image run standalone).
+Same path, on purpose: a Docker bind mount replaces whatever is at its target path in the
+container's filesystem outright, before nginx (or anything else) ever reads it -- this is a
+filesystem-level substitution, not nginx's own conf.d load-order behavior, and it holds
+regardless of what nginx would otherwise do with same- or different-named files (verified:
+building this image and running it with a dummy file bind-mounted over
+`/etc/nginx/conf.d/00-privacy.conf` leaves only the dummy's content readable at that path
+inside the container -- this image's own `COPY`'d content is not there to be "read" at all).
+So `linkling-api`'s bind mount (`ro`) doesn't add a second file for nginx to choose between;
+it swaps this image's own copy at that exact path for its own, and nginx only ever sees one
+file. Nothing about the two conflicts, and nothing in `linkling-api` needs to change for that
+to keep being true. The mount becomes redundant the moment this image ships, but removing it
+is `linkling-api`'s call, not this repo's (LL-020's scope excludes it) -- until it is
+removed, `linkling-web` still works if `linkling-api` is rolled back to an image predating
+this change, which the mount alone could not guarantee for the reverse case (an old
+`linkling-api` compose file against a new, mount-free `linkling-web` image run standalone).
 
 Alternatives considered:
 - **Do nothing here; require every deployment to remember the mount.** This is the status
@@ -62,8 +67,13 @@ Alternatives considered:
 - `linkling-api`'s `compose.yaml` mount at `deploy/nginx-privacy.conf:/etc/nginx/conf.d/00-privacy.conf`
   is now redundant. It is left in place (out of scope for this item); a future item in
   `linkling-api` can remove it once someone there decides the duplication is worth cutting.
-- Any future nginx config file added to this image must not reuse the `00-` prefix, or it
-  will load out of the order this ADR assumes.
+- The `00-` prefix is not resolving a conflict today -- verified: `nginx:1.27-alpine`'s own
+  `conf.d/default.conf` sets no `access_log`/`error_log` of its own to override (its
+  `access_log` line is commented out). It guards a future one: nginx's `include
+  /etc/nginx/conf.d/*.conf;` loads distinctly-named files in filename order, last write for
+  a given directive wins, so any future nginx config file added to this image should sort
+  after `00-` or it could load before these directives and be overridden by them unexpectedly
+  (or, sorting after, silently override them the same way).
 - The two repos' `deploy/nginx-privacy.conf` files are now independent copies of the same
   three directives, not a shared file -- a future change to the tested directives (e.g. a
   new request-level error found to leak an address) has to be carried into both by hand.

@@ -16,3 +16,11 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[test]"
       - run: pytest -q
+
+  image-privacy:
+    name: image-privacy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/image-privacy-smoke.sh

@@ -5,12 +5,15 @@ on:
   push:
     branches: [main]
 
-# Every job runs on ubuntu-24.04, not on the `ubuntu-latest` alias, which moves to Ubuntu 26 from
-# 2026-10-19 (actions/runner-images#14748). The two Docker jobs run on whatever Docker and kernel
-# the image ships, so the move should reach them when someone changes the label and watches them go
-# green, not on a date GitHub chose. `ubuntu-latest` was `ubuntu-24.04` when this was pinned, so the
-# pin changes nothing today. Nothing else moves a runner label: it is moved by hand, and
-# tests/test_ll035_site_check_in_ci.py fails if a job goes back to an `-latest` alias.
+# Every job runs on ubuntu-24.04, not on the `ubuntu-latest` alias, which starts moving to Ubuntu
+# 26.04 on 2026-10-19, in a rollout over several weeks that is to be complete by 2026-11-19
+# (actions/runner-images#14748). The two Docker jobs (image-privacy and no-third-party-site) run on
+# whatever Docker and kernel the image ships, so the move should reach them when someone changes the
+# label and watches them go green, not on dates GitHub chose. `ubuntu-latest` was `ubuntu-24.04` when
+# this was pinned (a run on `main` from 2026-09-23, before the pin, printed `Image: ubuntu-24.04`),
+# so the pin changes nothing today. This repository has no .github/dependabot.yml, so only a person
+# moves the label, and tests/test_ll035_site_check_in_ci.py fails unless every job names a versioned
+# Ubuntu image (`ubuntu-NN.NN`), so an alias or an expression in its place is red.
 
 jobs:
   test:
@@ -41,9 +44,10 @@ jobs:
   # container sends while its pages and stylesheets are fetched, and reads what it serves. A packet
   # that is not a reply to the check's own requests fails it, and so does any DNS lookup, and so does
   # an absolute URL, a <script> or an inline event handler in what the site serves. So the job checks
-  # out both repositories, each into its own directory (a checkout writes only inside the workspace,
-  # and the site's Docker build context is linkling-web/, which then holds neither linkling-api nor
-  # the check's scratch data): this repository, and linkling-api at its trunk, `main`. Both are
+  # out both repositories, each into its own directory (a checkout refuses a path outside the
+  # workspace: actions/checkout src/input-helper.ts:39-51 at the pinned SHA; and the site's Docker
+  # build context is linkling-web/, which then holds neither linkling-api nor the check's scratch
+  # data): this repository, and linkling-api at its trunk, `main`. Both are
   # public, so that takes no deploy key and no secret of ours: the action passes the workflow's own
   # token, and `persist-credentials: false` leaves none of it behind in either checkout.
   # Because the check is linkling-api's `main`, a change there to the script or to what it builds
@@ -51,9 +55,9 @@ jobs:
   # there, with no change here.
   # A missing checkout is red, never green. With no site directory the script ends `blind: no
   # linkling-web checkout at <dir>` (exit 2); with no script the shell ends `No such file or
-  # directory` (exit 127). Nothing in the job may carry an `if:`, `continue-on-error:` or
-  # `working-directory:`, which could turn the step into a green no-op
-  # (tests/test_ll035_site_check_in_ci.py).
+  # directory` (exit 127). The job's keys, its three steps and each step's keys are pinned exactly in
+  # tests/test_ll035_site_check_in_ci.py, so an `if:`, `shell:`, `env:` or `continue-on-error:`, which
+  # could turn the step into a green no-op, and a fourth step, have to be argued for there.
   no-third-party-site:
     name: no-third-party-site
     runs-on: ubuntu-24.04

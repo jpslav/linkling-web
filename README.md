@@ -18,5 +18,5 @@ to `main`. The `no-third-party-site` job (`.github/workflows/ci.yml`) runs `link
 repository's compose stack, and fails if the site sends a packet to anyone but the visitor or serves
 an absolute URL, a `<script>` or an inline event handler. A missing checkout is red, never green.
 The check is `linkling-api`'s, so a change there to the script or to what it builds reaches this job
-when it merges. Every job runs on `ubuntu-24.04`, not the `ubuntu-latest` alias, which moves to Ubuntu 26
-from 2026-10-19.
+when it merges. Every job runs on `ubuntu-24.04`, not the `ubuntu-latest` alias; the comment at the
+top of `.github/workflows/ci.yml` says why.

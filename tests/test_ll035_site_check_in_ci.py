@@ -17,8 +17,8 @@ checkout input that moves it to another ref or another server is a red here and 
 - the step that runs the check points at exactly the paths the checkouts write to, and is not
   `--api-only` (which skips the site);
 - every job runs on a versioned Ubuntu image (`ubuntu-NN.NN`), not on an alias or an expression,
-  which move on GitHub's schedule (`ubuntu-latest` moves to Ubuntu 26 from 2026-10-19,
-  actions/runner-images#14748).
+  which move on GitHub's schedule; the comment at the top of ci.yml says why (`ubuntu-latest` is
+  about to move to Ubuntu 26.04).
 
 These tests read text. The check going red on a site with an external stylesheet, and blind with a
 checkout missing, were shown by running it in CI (the pull request that added this file says how).

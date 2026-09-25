@@ -58,6 +58,10 @@ jobs:
     name: no-third-party-site
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [none, red, site-absent, site-empty, script-absent, docker-down]
     steps:
       - name: check out this repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,5 +75,24 @@ jobs:
           ref: main
           path: linkling-api
           persist-credentials: false
+      - name: THROWAWAY (LL-035) break one thing the check depends on, as the matrix leg says
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          echo "throwaway leg: $MODE"
+          case "$MODE" in
+            none) ;;
+            red)
+              cp -r linkling-web linkling-web-red
+              sed -i 's#</head>#<link rel="stylesheet" href="https://styles.example.invalid/red.css"></head>#' linkling-web-red/site/index.html
+              grep -n "styles.example.invalid" linkling-web-red/site/index.html
+              rm -rf linkling-web
+              mv linkling-web-red linkling-web
+              ;;
+            site-absent) rm -rf linkling-web ;;
+            site-empty) find linkling-web -mindepth 1 -delete ;;
+            script-absent) rm -rf linkling-api ;;
+            docker-down) sudo systemctl stop docker.socket docker.service ;;
+          esac
       - name: the whole check passes against this checkout
         run: LINKLING_WEB_DIR="$GITHUB_WORKSPACE/linkling-web" linkling-api/scripts/no-third-party-check.sh

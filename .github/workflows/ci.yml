@@ -5,10 +5,17 @@ on:
   push:
     branches: [main]
 
+# Every job runs on ubuntu-24.04, not on the `ubuntu-latest` alias, which moves to Ubuntu 26 from
+# 2026-10-19 (actions/runner-images#14748). The two Docker jobs run on whatever Docker and kernel
+# the image ships, so the move should reach them when someone changes the label and watches them go
+# green, not on a date GitHub chose. `ubuntu-latest` was `ubuntu-24.04` when this was pinned, so the
+# pin changes nothing today. Nothing else moves a runner label: it is moved by hand, and
+# tests/test_ll035_site_check_in_ci.py fails if a job goes back to an `-latest` alias.
+
 jobs:
   test:
     name: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,8 +26,50 @@ jobs:
 
   image-privacy:
     name: image-privacy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/image-privacy-smoke.sh
+
+  # LL-035: the no-third-party check, run on the site as it is proposed here, so a change that makes
+  # the public site load anything from a third party is red in the pull request that makes it, and
+  # not only on the next linkling-api build (whose own job of this name checks this repository's
+  # `main`, LL-034).
+  # The check is linkling-api's, not a copy: scripts/no-third-party-check.sh (ADR-0009 there) builds
+  # this repository's Dockerfile into linkling-api's compose stack, captures every packet the site
+  # container sends while its pages and stylesheets are fetched, and reads what it serves. A packet
+  # that is not a reply to the check's own requests fails it, and so does any DNS lookup, and so does
+  # an absolute URL, a <script> or an inline event handler in what the site serves. So the job checks
+  # out both repositories, each into its own directory (a checkout writes only inside the workspace,
+  # and the site's Docker build context is linkling-web/, which then holds neither linkling-api nor
+  # the check's scratch data): this repository, and linkling-api at its trunk, `main`. Both are
+  # public, so that takes no deploy key and no secret of ours: the action passes the workflow's own
+  # token, and `persist-credentials: false` leaves none of it behind in either checkout.
+  # Because the check is linkling-api's `main`, a change there to the script or to what it builds
+  # (compose.yaml, its Dockerfile, deploy/nginx-privacy.conf) reaches this job as soon as it merges
+  # there, with no change here.
+  # A missing checkout is red, never green. With no site directory the script ends `blind: no
+  # linkling-web checkout at <dir>` (exit 2); with no script the shell ends `No such file or
+  # directory` (exit 127). Nothing in the job may carry an `if:`, `continue-on-error:` or
+  # `working-directory:`, which could turn the step into a green no-op
+  # (tests/test_ll035_site_check_in_ci.py).
+  no-third-party-site:
+    name: no-third-party-site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: check out this repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: linkling-web
+          persist-credentials: false
+      - name: check out the check and the stack it builds, from linkling-api's trunk, which is public
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jpslav/linkling-api
+          ref: main
+          path: linkling-api
+          persist-credentials: false
+      - name: the whole check passes against this checkout
+        run: LINKLING_WEB_DIR="$GITHUB_WORKSPACE/linkling-web" linkling-api/scripts/no-third-party-check.sh

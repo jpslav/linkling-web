@@ -35,10 +35,11 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash scripts/image-privacy-smoke.sh
 
-  # LL-035: the no-third-party check, run on the site as it is proposed here, so a change that makes
-  # the public site load anything from a third party is red in the pull request that makes it, and
-  # not only on the next linkling-api build (whose own job of this name checks this repository's
-  # `main`, LL-034).
+  # LL-035: the no-third-party check, run on the site as it is proposed here, so what the built image
+  # serves and sends is judged in the pull request that changes it, and not only on the next
+  # linkling-api build (whose own job of this name checks this repository's `main`, LL-034).
+  # tests/test_no_third_party.py is the other half: it reads site/ for literal remote references,
+  # and this job judges what is served.
   # The check is linkling-api's, not a copy: scripts/no-third-party-check.sh (ADR-0009 there) builds
   # this repository's Dockerfile into linkling-api's compose stack, captures every packet the site
   # container sends while its pages and stylesheets are fetched, and reads what it serves. A packet

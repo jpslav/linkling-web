@@ -10,3 +10,13 @@ required: `docker run` of `linkling-web` alone still keeps `linkling-api`'s ADR-
 promise that Linkling keeps no IP addresses (see
 `docs/adr/0003-bake-privacy-directives-into-image.md`, `deploy/nginx-privacy.conf`,
 `scripts/image-privacy-smoke.sh`).
+
+The site loads nothing from a third party, and CI checks it on every pull request and every push
+to `main`. The `no-third-party-site` job (`.github/workflows/ci.yml`) runs `linkling-api`'s
+`scripts/no-third-party-check.sh` against this checkout: it checks out `linkling-api` at its `main`
+(both repositories are public, so with no deploy key or secret), builds this Dockerfile into that
+repository's compose stack, and fails if the site sends a packet to anyone but the visitor or serves
+an absolute URL, a `<script>` or an inline event handler. A missing checkout is red, never green.
+The check is `linkling-api`'s, so a change there to the script or to what it builds reaches this job
+when it merges. Every job runs on `ubuntu-24.04`, not the `ubuntu-latest` alias; the comment at the
+top of `.github/workflows/ci.yml` says why.
